@@ -98,7 +98,7 @@ O workflow pode ser acionado manualmente via workflow_dispatch.
 
 ## Configuração de Variáveis e Secrets
 
-Adicione as variáveis e secrets necessários em Settings > Secrets and variables > Actions no repositório que reutilizará os workflows.
+Adicione as variáveis (ou pipe.yml) e secrets necessários em Settings > Secrets and variables > Actions no repositório que reutilizará os workflows.
 
 
 **Variáveis**

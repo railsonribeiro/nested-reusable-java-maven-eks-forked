@@ -1,0 +1,143 @@
+name: Deploy Workflow
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        required: false
+        type: string
+        default: 'default-app'
+      dockerhub_username:
+        required: false
+        type: string
+        default: 'default-username'
+      cluster_name:
+        required: false
+        type: string
+        default: 'default-cluster'
+      region_aws_deploy:
+        required: false
+        type: string
+        default: 'us-east-1'
+      domain_name:
+        required: false
+        type: string
+        default: 'default-domain.com'
+      run_docker_build_and_push:
+        required: true
+        type: boolean
+      run_deploy:
+        required: true
+        type: boolean
+
+jobs:
+  docker-build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    if: inputs.run_docker_build_and_push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ vars.APP_NAME }}:latest .
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag Docker image for Docker Hub
+        run: |
+          docker tag ${{ vars.APP_NAME }}:latest ${{ vars.DOCKERHUB_USERNAME }}/${{ vars.APP_NAME }}:latest
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          docker push ${{ vars.DOCKERHUB_USERNAME }}/${{ vars.APP_NAME }}:latest
+
+  deploy:
+    name: Deploy to Cluster
+    runs-on: ubuntu-latest
+    needs: docker-build-and-push
+    if: inputs.run_deploy
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Update kube config
+        run: |
+          echo "🔍 Verificando cluster EKS: ${{vars.CLUSTER_NAME}}"
+          
+          # Verificar se o cluster existe
+          if ! aws eks describe-cluster --name ${{vars.CLUSTER_NAME}} --region ${{vars.REGION_AWS_DEPLOY}} >/dev/null 2>&1; then
+            echo "❌ ERRO: Cluster EKS '${{vars.CLUSTER_NAME}}' não encontrado na região ${{vars.REGION_AWS_DEPLOY}}"
+            exit 1
+          fi
+          
+          echo "✅ Cluster encontrado, atualizando kubeconfig..."
+          aws eks update-kubeconfig --name ${{vars.CLUSTER_NAME}} --region ${{vars.REGION_AWS_DEPLOY}}
+          
+          # Testar conectividade
+          echo "🔍 Testando conectividade com o cluster..."
+          if ! kubectl get nodes >/dev/null 2>&1; then
+            echo "❌ ERRO: Não foi possível conectar ao cluster"
+            echo "Verifique as permissões IAM e a configuração do cluster"
+            exit 1
+          fi
+          
+          echo "✅ Conectado ao cluster com sucesso!"
+          kubectl get nodes
+
+      - name: Clean Previous Deployment
+        run: |
+          echo "🧹 Removendo recursos anteriores para garantir deploy limpo..."
+
+          # Deletar todos os recursos do cluster de
+          kubectl delete all --all
+
+      - name: Deploy ConfigMap and Secret base
+        run: |
+          # Apply base ConfigMap and Secret first
+          kubectl apply -f k8s/prd/configmap.yaml
+
+      - name: Update ConfigMap and Secrets
+        run: |
+
+          # Update Secret with all sensitive data
+          kubectl patch secret api-secret --patch "
+          data:
+            AWS_ACCESS_KEY: $(echo -n '${{ secrets.AWS_ACCESS_KEY_ID }}' | base64 -w 0)
+            AWS_SECRET_KEY: $(echo -n '${{ secrets.AWS_SECRET_ACCESS_KEY }}' | base64 -w 0)
+            JWT_TOKEN_PIX_APPLICATION_PAYMENT: $(echo -n '${{ secrets.JWT_TOKEN_PIX_APPLICATION_PAYMENT }}' | base64 -w 0)
+            JWT_SECRET: $(echo -n '${{ secrets.JWT_SECRET }}' | base64 -w 0)
+          "
+
+          echo "✅ Secret atualizado com dados sensíveis"
+
+      - name: Deploy to AWS/EKS (Production)
+        run: |
+          echo "🚀 Iniciando deploy dos recursos..."
+
+          # Apply deployment first
+          kubectl apply -f k8s/prd/deployment.yaml
+
+          # Aplicar o Service processado
+          kubectl apply -f k8s/prd/k8s-service.yaml
+
+          # Aplicar Ingress
+          kubectl apply -f k8s/prd/ingress.yaml
+
+          # Aplicar outros recursos
+          kubectl apply -f k8s/prd/hpa.yaml
+
+          echo "✅ Todos os recursos aplicados com sucesso!"

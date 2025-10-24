@@ -26,11 +26,19 @@ jobs:
         with:
           name: build-artifacts
           path: .
+      - name: Verify downloaded artifacts
+        run: |
+          if [ ! -d "target" ]; then
+            echo "::error::Artifact 'build-artifacts' not found or is empty. The build job may have failed."
+            exit 1
+          fi
+          echo "Artifacts downloaded successfully. Directory 'target' is present."
+          ls -l target
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: "https://sonarcloud.io"
+#          SONAR_HOST_URL: "https://sonarcloud.io"
 
 
 

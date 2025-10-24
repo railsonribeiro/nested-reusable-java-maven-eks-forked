@@ -180,7 +180,7 @@ jobs:
 
   build_and_test:
     needs: validation-and-lint
-    if: ${{ inputs.run_build }}
+    if: ${{ inputs.run_build_and_test }}
     runs-on: ubuntu-latest
     outputs:
       build_status: ${{ steps.set-output.outputs.build_status }}
@@ -203,7 +203,7 @@ jobs:
 #          restore-keys: |
 #              ${{ runner.os }}-m2-
       - name: Run build and Tests
-        if: inputs.run_build && inputs.run_unit_test
+        if: inputs.run_build_and_test
 #        id: run-build
         run: |
           mvn -B verify
@@ -217,10 +217,10 @@ jobs:
 #              echo "build_status=failure" >> $GITHUB_OUTPUT
 #              exit $EXIT_CODE
 #            fi
-      - name: Build whithout Tests
-        if: inputs.run_build && !inputs.run_unit_test
-        run: |
-          mvn -B package -DskipTests
+#      - name: Build whithout Tests
+#        if: inputs.run_build_and_test && !inputs.run_unit_test
+#        run: |
+#          mvn -B package -DskipTests
 #      - name: Set job output
 #        id: set-output
 #        run: |
@@ -272,28 +272,28 @@ jobs:
 #          echo "test_status=${{ steps.run-unit_test.outputs.test_status || 'success' }}" >> $GITHUB_OUTPUT
 
       - name: Gerar relatório Jacoco
-        if: inputs.run_unit_test
+        if: inputs.run_build_and_test
         run: mvn jacoco:report
 
       - name: Generate Jacoco Badge
         id: jacoco
-        if: inputs.run_unit_test
+        if: inputs.run_build_and_test
         uses: cicirello/jacoco-badge-generator@v2.0.1
       - name: Log coverage percentage
-        if: inputs.run_unit_test
+        if: inputs.run_build_and_test
         run: |
           echo "Coverage percentage: ${{ steps.jacoco.outputs.coverage }}"
           echo "branch coverage: ${{ steps.jacoco.outputs.branches }}"
 
       - name: Upload Jacoco coverage report
-        if: inputs.run_unit_test
+        if: inputs.run_build_and_test
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: target/site/jacoco/
 
       - name: Upload build artifacts for Sonar
-        if: inputs.run_build
+        if: inputs.run_build_and_test
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts

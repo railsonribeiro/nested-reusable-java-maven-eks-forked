@@ -220,7 +220,7 @@ jobs:
           echo "build_status=${{ steps.run-build.outputs.build_status || 'success' }}" >> $GITHUB_OUTPUT
 
   unit_test:
-    if: ${{ inputs.run_tests }}
+    if: ${{ inputs.run_unit_test }}
     runs-on: ubuntu-latest
     needs: [ validation-and-lint, build]
     outputs:
@@ -261,7 +261,7 @@ jobs:
       - name: Set job output
         id: set-output
         run: |
-          echo "test_status=${{ steps.run-tests.outputs.test_status || 'success' }}" >> $GITHUB_OUTPUT
+          echo "test_status=${{ steps.run-unit_test.outputs.test_status || 'success' }}" >> $GITHUB_OUTPUT
 
       - name: Gerar relatório Jacoco
         run: mvn jacoco:report

@@ -179,7 +179,7 @@ jobs:
 
   build_and_test:
     name: Build & Test
-    needs: validation-and-lint
+#    needs: validation-and-lint
     if: ${{ inputs.run_build_and_test }}
     runs-on: ubuntu-latest
     outputs:

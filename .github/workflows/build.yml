@@ -40,7 +40,7 @@ on:
         required: false
         type: boolean
         default: true
-      gates:
+      run_gates:
         description: "Executar gates de qualidade"
         required: false
         type: boolean

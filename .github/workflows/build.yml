@@ -59,9 +59,9 @@ on:
       CLOUDFLARE_EDIT_ZONE_DNS_KEY:
         required: false
 
-permissions:
-  contents: read
-  actions: read
+#permissions:
+#  contents: read
+#  actions: read
 
 jobs:
   validation-and-lint:

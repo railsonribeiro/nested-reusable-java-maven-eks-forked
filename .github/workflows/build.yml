@@ -263,7 +263,7 @@ jobs:
           find . -name report-task.txt
 
       - name: Wait for SonarQube Quality Gate
-        if: ${{ inputs.run_gates && github.ref == 'refs/heads/main' }}
+        if: ${{ inputs.run_gates && github.ref == 'refs/heads/develop' }} # trocar para 'main' se necessário
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |

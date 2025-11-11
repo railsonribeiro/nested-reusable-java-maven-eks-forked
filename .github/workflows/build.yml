@@ -249,7 +249,7 @@ jobs:
           fi
 
       - name: SonarQube Scan
-        if: ${{ inputs.run_gates && github.ref == 'refs/heads/main' }}
+        if: ${{ inputs.run_gates && github.ref == 'refs/heads/develop' }}
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         with:
           args: -Dsonar.coverage.jacoco.xmlReportPaths="**/target/site/jacoco/jacoco.xml"
@@ -262,21 +262,34 @@ jobs:
           echo "Procurando .scannerwork/report-task.txt..."
           find . -name report-task.txt
 
+      - name: Salvar report-task.txt como artifact
+        if: ${{ inputs.run_gates && github.ref == 'refs/heads/develop' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-report-task
+          path: .scannerwork/report-task.txt
+
+      - name: Baixar report-task.txt
+        uses: actions/download-artifact@v4
+        with:
+          name: sonar-report-task
+          path: .scannerwork
+
       - name: Wait for SonarQube Quality Gate
-        if: ${{ inputs.run_gates && github.ref == 'refs/heads/develop' }} # trocar para 'main' se necessário
+        if: ${{ inputs.run_gates && github.ref == 'refs/heads/main' }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           echo "Conteúdo de .scannerwork/report-task.txt (se existir):"
-          if [ -f "./.scannerwork/report-task.txt" ]; then
-            cat ./.scannerwork/report-task.txt
+          if [ -f ".scannerwork/report-task.txt" ]; then
+            cat .scannerwork/report-task.txt
           else
-            echo "::warning::Arquivo ./.scannerwork/report-task.txt não encontrado no diretório atual"
-            ls -la ./.scannerwork || true
+            echo "::warning::Arquivo .scannerwork/report-task.txt não encontrado no diretório atual"
+            ls -la .scannerwork || true
           fi
           set -euo pipefail
 
-          REPORT_FILE="./.scannerwork/report-task.txt"
+          REPORT_FILE=".scannerwork/report-task.txt"
           if [ ! -f "$REPORT_FILE" ]; then
             echo "::error::Arquivo de report do scanner não encontrado: $REPORT_FILE"
             ls -la .

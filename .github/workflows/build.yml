@@ -4,31 +4,17 @@ on:
   workflow_call:
     inputs:
       #variables
+      app_name:
+        required: true
+        type: string
+      dockerhub_username:
+        required: true
+        type: string
       java_version:
         description: "Versão do Java (ex: '17' ou '21')"
         required: false
         type: string
         default: "21"
-      app_name:
-        required: false
-        type: string
-        default: "default-app"
-      dockerhub_username:
-        required: false
-        type: string
-        default: "postechf57"
-      cluster_name:
-        required: false
-        type: string
-        default: "eks-postech-g57"
-      region_aws_deploy:
-        required: false
-        type: string
-        default: "us-east-1"
-      domain_name:
-        required: false
-        type: string
-        default: "pos-tech-g57-food-app.com.br"
       #runsteps
       run_validation_and_lint:
         description: "Executar validação e linting"
@@ -45,28 +31,9 @@ on:
         required: false
         type: boolean
       run_docker_build_and_push:
-        description: 'Executar Build e Push do Docker'
         required: false
         type: boolean
-      run_deploy:
-        description: 'Executar Deploy'
-        required: false
-        type: boolean
-    #secrets
-    secrets:
-      DOCKERHUB_TOKEN:
-        required: true
-      AWS_ACCESS_KEY_ID:
-        required: true
-      AWS_SECRET_ACCESS_KEY:
-        required: true
-      JWT_TOKEN_PIX_APPLICATION_PAYMENT:
-        required: false
-      JWT_SECRET:
-        required: false
-      CLOUDFLARE_EDIT_ZONE_DNS_KEY:
-        required: false
-
+        default: true
 
 jobs:
   validation-and-lint:
@@ -78,87 +45,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify Required Variables and Secrets
-        run: |
-          echo "🔍 Verificando variáveis e secrets necessários..."
-
-          # prefer inputs, fallback para repository vars
-          APP_NAME="${{ inputs.app_name }}"
-          if [ -z "$APP_NAME" ]; then
-            APP_NAME="${{ vars.APP_NAME }}"
-          fi
-
-          DOCKERHUB_USERNAME="${{ inputs.dockerhub_username }}"
-          if [ -z "$DOCKERHUB_USERNAME" ]; then
-            DOCKERHUB_USERNAME="${{ vars.DOCKERHUB_USERNAME }}"
-          fi
-
-          CLUSTER_NAME="${{ inputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="${{ vars.CLUSTER_NAME }}"
-          fi
-
-          REGION_AWS_DEPLOY="${{ inputs.region_aws_deploy }}"
-          if [ -z "$REGION_AWS_DEPLOY" ]; then
-            REGION_AWS_DEPLOY="${{ vars.REGION_AWS_DEPLOY }}"
-          fi
-
-          DOMAIN_NAME="${{ inputs.domain_name }}"
-          if [ -z "$DOMAIN_NAME" ]; then
-            DOMAIN_NAME="${{ vars.DOMAIN_NAME }}"
-          fi
-
-          echo "📋 Verificando variáveis..."
-          MISSING_VARS=()
-          if [ -z "$APP_NAME" ]; then MISSING_VARS+=("APP_NAME"); else echo "✅ APP_NAME: $APP_NAME"; fi
-          if [ -z "$DOCKERHUB_USERNAME" ]; then MISSING_VARS+=("DOCKERHUB_USERNAME"); else echo "✅ DOCKERHUB_USERNAME: $DOCKERHUB_USERNAME"; fi
-          if [ -z "$CLUSTER_NAME" ]; then MISSING_VARS+=("CLUSTER_NAME"); else echo "✅ CLUSTER_NAME: $CLUSTER_NAME"; fi
-          if [ -z "$REGION_AWS_DEPLOY" ]; then MISSING_VARS+=("REGION_AWS_DEPLOY"); else echo "✅ REGION_AWS_DEPLOY: $REGION_AWS_DEPLOY"; fi
-          if [ -z "$DOMAIN_NAME" ]; then MISSING_VARS+=("DOMAIN_NAME"); else echo "✅ DOMAIN_NAME: $DOMAIN_NAME"; fi
-
-          echo "🔐 Verificando secrets..."
-          MISSING_SECRETS=()
-          DOCKERHUB_TOKEN="${{ secrets.DOCKERHUB_TOKEN }}"
-          if [ -z "$DOCKERHUB_TOKEN" ]; then MISSING_SECRETS+=("DOCKERHUB_TOKEN"); else echo "✅ DOCKERHUB_TOKEN: [REDACTED]"; fi
-
-          AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
-          if [ -z "$AWS_ACCESS_KEY_ID" ]; then MISSING_SECRETS+=("AWS_ACCESS_KEY_ID"); else echo "✅ AWS_ACCESS_KEY_ID: [REDACTED]"; fi
-
-          AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-          if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then MISSING_SECRETS+=("AWS_SECRET_ACCESS_KEY"); else echo "✅ AWS_SECRET_ACCESS_KEY: [REDACTED]"; fi
-
-          JWT_TOKEN_PIX_APPLICATION_PAYMENT="${{ secrets.JWT_TOKEN_PIX_APPLICATION_PAYMENT }}"
-          if [ -z "$JWT_TOKEN_PIX_APPLICATION_PAYMENT" ]; then MISSING_SECRETS+=("JWT_TOKEN_PIX_APPLICATION_PAYMENT"); else echo "✅ JWT_TOKEN_PIX_APPLICATION_PAYMENT: [REDACTED]"; fi
-
-          JWT_SECRET="${{ secrets.JWT_SECRET }}"
-          if [ -z "$JWT_SECRET" ]; then MISSING_SECRETS+=("JWT_SECRET"); else echo "✅ JWT_SECRET: [REDACTED]"; fi
-
-          CLOUDFLARE_EDIT_ZONE_DNS_KEY="${{ secrets.CLOUDFLARE_EDIT_ZONE_DNS_KEY }}"
-          if [ -z "$CLOUDFLARE_EDIT_ZONE_DNS_KEY" ]; then MISSING_SECRETS+=("CLOUDFLARE_EDIT_ZONE_DNS_KEY"); else echo "✅ CLOUDFLARE_EDIT_ZONE_DNS_KEY: [REDACTED]"; fi
-
-          if [ ${#MISSING_VARS[@]} -ne 0 ] || [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
-            echo ""
-            echo "❌ ERRO: Variáveis ou secrets obrigatórios não foram encontrados!"
-            if [ ${#MISSING_VARS[@]} -ne 0 ]; then
-              echo ""
-              echo "📋 Variáveis faltando:"
-              for var in "${MISSING_VARS[@]}"; do
-                echo "  - $var"
-              done
-            fi
-            if [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
-              echo ""
-              echo "🔐 Secrets faltando:"
-              for secret in "${MISSING_SECRETS[@]}"; do
-                echo "  - $secret"
-              done
-            fi
-            exit 1
-          else
-            echo ""
-            echo "✅ Todas as variáveis e secrets necessários estão configurados!"
-            echo ""
-          fi
       - name: Lint Dockerfile
         run: |
           echo "🔍 Verificando qualidade do Dockerfile..."
@@ -182,9 +68,6 @@ jobs:
            echo "🔍 Executando lint no Dockerfile..."
            hadolint Dockerfile 
 
-
-
-
   build_and_test:
     name: Build & Test
 #    needs: validation-and-lint
@@ -192,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build_ok: ${{ steps.build_and_test_step.outcome }}
+      app_version: ${{ steps.extract_version.outputs.version }}
+      image_tag: ${{ steps.extract_version.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -202,6 +87,17 @@ jobs:
           distribution: temurin
           java-version: ${{ inputs.java_version }}
           cache: maven
+
+      - name: Extract Version from pom.xml
+        id: extract_version
+        run: |
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          
+          echo "📦 Versão do pom.xml: $VERSION"
+          echo "🏷️  Tag da imagem: $VERSION"
 
       - name: Build with Maven
         run: | 
@@ -365,220 +261,41 @@ jobs:
           echo "✅ Quality Gate OK"
 
   docker-build-and-push:
+    name: Build and Push Docker Image
+    needs:  build_and_test
     runs-on: ubuntu-latest
-    needs: build_and_test
-    if: (github.ref == 'refs/heads/main')
+    if: inputs.run_docker_build_and_push
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Verify Required Variables and Secrets
-        run: |
-          echo "🔍 Verificando variáveis e secrets necessários..."
-
-          # prefer inputs, fallback para repository vars
-          APP_NAME="${{ inputs.app_name }}"
-          if [ -z "$APP_NAME" ]; then
-            APP_NAME="${{ vars.APP_NAME }}"
-          fi
-
-          DOCKERHUB_USERNAME="${{ inputs.dockerhub_username }}"
-          if [ -z "$DOCKERHUB_USERNAME" ]; then
-            DOCKERHUB_USERNAME="${{ vars.DOCKERHUB_USERNAME }}"
-          fi
-
-          CLUSTER_NAME="${{ inputs.cluster_name }}"
-          if [ -z "$CLUSTER_NAME" ]; then
-            CLUSTER_NAME="${{ vars.CLUSTER_NAME }}"
-          fi
-
-          REGION_AWS_DEPLOY="${{ inputs.region_aws_deploy }}"
-          if [ -z "$REGION_AWS_DEPLOY" ]; then
-            REGION_AWS_DEPLOY="${{ vars.REGION_AWS_DEPLOY }}"
-          fi
-
-          DOMAIN_NAME="${{ inputs.domain_name }}"
-          if [ -z "$DOMAIN_NAME" ]; then
-            DOMAIN_NAME="${{ vars.DOMAIN_NAME }}"
-          fi
-
-          echo "📋 Verificando variáveis..."
-          MISSING_VARS=()
-          if [ -z "$APP_NAME" ]; then MISSING_VARS+=("APP_NAME"); else echo "✅ APP_NAME: $APP_NAME"; fi
-          if [ -z "$DOCKERHUB_USERNAME" ]; then MISSING_VARS+=("DOCKERHUB_USERNAME"); else echo "✅ DOCKERHUB_USERNAME: $DOCKERHUB_USERNAME"; fi
-          if [ -z "$CLUSTER_NAME" ]; then MISSING_VARS+=("CLUSTER_NAME"); else echo "✅ CLUSTER_NAME: $CLUSTER_NAME"; fi
-          if [ -z "$REGION_AWS_DEPLOY" ]; then MISSING_VARS+=("REGION_AWS_DEPLOY"); else echo "✅ REGION_AWS_DEPLOY: $REGION_AWS_DEPLOY"; fi
-          if [ -z "$DOMAIN_NAME" ]; then MISSING_VARS+=("DOMAIN_NAME"); else echo "✅ DOMAIN_NAME: $DOMAIN_NAME"; fi
-
-          echo "🔐 Verificando secrets..."
-          MISSING_SECRETS=()
-          DOCKERHUB_TOKEN="${{ secrets.DOCKERHUB_TOKEN }}"
-          if [ -z "$DOCKERHUB_TOKEN" ]; then MISSING_SECRETS+=("DOCKERHUB_TOKEN"); else echo "✅ DOCKERHUB_TOKEN: [REDACTED]"; fi
-
-          AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
-          if [ -z "$AWS_ACCESS_KEY_ID" ]; then MISSING_SECRETS+=("AWS_ACCESS_KEY_ID"); else echo "✅ AWS_ACCESS_KEY_ID: [REDACTED]"; fi
-
-          AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-          if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then MISSING_SECRETS+=("AWS_SECRET_ACCESS_KEY"); else echo "✅ AWS_SECRET_ACCESS_KEY: [REDACTED]"; fi
-
-          JWT_TOKEN_PIX_APPLICATION_PAYMENT="${{ secrets.JWT_TOKEN_PIX_APPLICATION_PAYMENT }}"
-          if [ -z "$JWT_TOKEN_PIX_APPLICATION_PAYMENT" ]; then MISSING_SECRETS+=("JWT_TOKEN_PIX_APPLICATION_PAYMENT"); else echo "✅ JWT_TOKEN_PIX_APPLICATION_PAYMENT: [REDACTED]"; fi
-
-          JWT_SECRET="${{ secrets.JWT_SECRET }}"
-          if [ -z "$JWT_SECRET" ]; then MISSING_SECRETS+=("JWT_SECRET"); else echo "✅ JWT_SECRET: [REDACTED]"; fi
-
-          CLOUDFLARE_EDIT_ZONE_DNS_KEY="${{ secrets.CLOUDFLARE_EDIT_ZONE_DNS_KEY }}"
-          if [ -z "$CLOUDFLARE_EDIT_ZONE_DNS_KEY" ]; then MISSING_SECRETS+=("CLOUDFLARE_EDIT_ZONE_DNS_KEY"); else echo "✅ CLOUDFLARE_EDIT_ZONE_DNS_KEY: [REDACTED]"; fi
-
-          if [ ${#MISSING_VARS[@]} -ne 0 ] || [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
-            echo ""
-            echo "❌ ERRO: Variáveis ou secrets obrigatórios não foram encontrados!"
-            if [ ${#MISSING_VARS[@]} -ne 0 ]; then
-              echo ""
-              echo "📋 Variáveis faltando:"
-              for var in "${MISSING_VARS[@]}"; do
-                echo "  - $var"
-              done
-            fi
-            if [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
-              echo ""
-              echo "🔐 Secrets faltando:"
-              for secret in "${MISSING_SECRETS[@]}"; do
-                echo "  - $secret"
-              done
-            fi
-            exit 1
-          else
-            echo ""
-            echo "✅ Todas as variáveis e secrets necessários estão configurados!"
-            echo ""
-          fi
-      - name: Lint Dockerfile
-        run: |
-          echo "🔍 Verificando qualidade do Dockerfile..."
-
-           # Verificar se o Dockerfile existe
-           if [ ! -f "Dockerfile" ]; then
-             echo "❌ ERRO: Dockerfile não encontrado no repositório"
-             exit 1
-           fi
-
-           echo "✅ Dockerfile encontrado"
-
-           # Instalar hadolint se não estiver disponível
-           if ! command -v hadolint &> /dev/null; then
-             echo "📦 Instalando hadolint..."
-             wget -O hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
-             chmod +x hadolint
-             sudo mv hadolint /usr/local/bin/
-           fi
-
-           echo "🔍 Executando lint no Dockerfile..."
-           hadolint Dockerfile 
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Build Docker image
         run: |
-          docker build -t pos-tech-g57-app-users:latest .
+          IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
+          echo "🐳 Construindo imagem Docker com tag: $IMAGE_TAG"
+          docker build -t ${{ inputs.app_name }}:$IMAGE_TAG .
+          docker tag ${{ inputs.app_name }}:$IMAGE_TAG ${{ inputs.app_name }}:latest
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ inputs.DOCKERHUB_USERNAME }}
+          username: ${{ inputs.dockerhub_username }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Tag Docker image for Docker Hub
         run: |
-          set -euo pipefail
-          docker tag "pos-tech-g57-app-users:latest" "${{ vars.DOCKERHUB_USERNAME }}/pos-tech-g57-app-users:latest"
-        shell: /usr/bin/bash -l {0}
+          IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
+          echo "🏷️  Criando tags para Docker Hub..."
+          docker tag ${{ inputs.app_name }}:$IMAGE_TAG ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:$IMAGE_TAG
+          docker tag ${{ inputs.app_name }}:$IMAGE_TAG ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:latest
+          echo "✅ Tags criadas: $IMAGE_TAG e latest"
 
       - name: Push Docker image to Docker Hub
         run: |
-          set -euo pipefail
-          docker push "${{ vars.DOCKERHUB_USERNAME }}/pos-tech-g57-app-users:latest"
-        shell: /usr/bin/bash -l {0}
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: [ validation-and-lint, build_and_test, docker-build-and-push ]
-    if: (github.ref == 'refs/heads/main' && needs.docker-build-and-push.result == 'success')
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Update kube config
-        run: |
-          echo "🔍 Verificando cluster EKS: ${{vars.CLUSTER_NAME}}"
-
-          # Verificar se o cluster existe
-          if ! aws eks describe-cluster --name ${{vars.CLUSTER_NAME}} --region ${{vars.REGION_AWS_DEPLOY}} >/dev/null 2>&1; then
-            echo "❌ ERRO: Cluster EKS '${{vars.CLUSTER_NAME}}' não encontrado na região ${{vars.REGION_AWS_DEPLOY}}"
-            exit 1
-          fi
-
-          echo "✅ Cluster encontrado, atualizando kubeconfig..."
-          aws eks update-kubeconfig --name ${{vars.CLUSTER_NAME}} --region ${{vars.REGION_AWS_DEPLOY}}
-
-          # Testar conectividade
-          echo "🔍 Testando conectividade com o cluster..."
-          if ! kubectl get nodes >/dev/null 2>&1; then
-            echo "❌ ERRO: Não foi possível conectar ao cluster"
-            echo "Verifique as permissões IAM e a configuração do cluster"
-            exit 1
-          fi
-
-          echo "✅ Conectado ao cluster com sucesso!"
-          kubectl get nodes
-
-      - name: Clean Previous Deployment
-        run: |
-          echo "🧹 Removendo recursos anteriores para garantir deploy limpo..."
-
-          # Deletar todos os recursos do cluster de
-          kubectl delete all --all
-
-      - name: Deploy ConfigMap and Secret base
-        run: |
-          # Apply base ConfigMap and Secret first
-          kubectl apply -f k8s/prd/configmap.yaml
-
-      - name: Update ConfigMap and Secrets
-        run: |
-
-          # Update Secret with all sensitive data
-          kubectl patch secret api-secret --patch "
-          data:
-            AWS_ACCESS_KEY: $(echo -n '${{ secrets.AWS_ACCESS_KEY_ID }}' | base64 -w 0)
-            AWS_SECRET_KEY: $(echo -n '${{ secrets.AWS_SECRET_ACCESS_KEY }}' | base64 -w 0)
-            JWT_TOKEN_PIX_APPLICATION_PAYMENT: $(echo -n '${{ secrets.JWT_TOKEN_PIX_APPLICATION_PAYMENT }}' | base64 -w 0)
-            JWT_SECRET: $(echo -n '${{ secrets.JWT_SECRET }}' | base64 -w 0)
-          "
-
-          echo "✅ Secret atualizado com dados sensíveis"
-
-      - name: Deploy to AWS/EKS (Production)
-        run: |
-          echo "🚀 Iniciando deploy dos recursos..."
-
-          # Apply deployment first
-          kubectl apply -f k8s/prd/deployment.yaml
-
-          # Aplicar o Service processado
-          kubectl apply -f k8s/prd/k8s-service.yaml
-
-          # Aplicar Ingress
-          kubectl apply -f k8s/prd/ingress.yaml
-
-          # Aplicar outros recursos
-          kubectl apply -f k8s/prd/hpa.yaml
-
-          echo "✅ Todos os recursos aplicados com sucesso!"
+          IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
+          echo "📤 Enviando imagens para Docker Hub..."
+          docker push ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:$IMAGE_TAG
+          docker push ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:latest
+          echo "✅ Imagens publicadas:"
+          echo "  - ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:$IMAGE_TAG"
+          echo "  - ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:latest"

@@ -3,35 +3,37 @@ name: Build Workflow
 on:
   workflow_call:
     inputs:
+      #variables
       app_name:
-        required: false
+        required: true
         type: string
-        default: 'default-app'
       dockerhub_username:
+        required: true
+        type: string
+      java_version:
+        description: "Versão do Java (ex: '17' ou '21')"
         required: false
         type: string
-        default: 'postechf57'
-      cluster_name:
-        required: false
-        type: string
-        default: 'eks-postech-g57'
-      region_aws_deploy:
-        required: false
-        type: string
-        default: 'us-east-1'
-      domain_name:
-        required: false
-        type: string
-        default: 'pos-tech-g57-food-app.com.br'
+        default: "21"
+      #runsteps
       run_validation_and_lint:
-        required: true
+        description: "Executar validação e linting"
+        required: false
         type: boolean
-      run_build:
-        required: true
+        default: true
+      run_build_and_test:
+        description: "Executar build e testes"
+        required: false
         type: boolean
-      run_unit_test:
-        required: true
+        default: true
+      run_gates:
+        description: "Executar gates de qualidade"
+        required: false
         type: boolean
+      run_docker_build_and_push:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   validation-and-lint:
@@ -43,154 +45,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify Required Variables and Secrets
-        run: |
-          echo "🔍 Verificando variáveis e secrets necessários..."
-          
-          # Lista de variáveis obrigatórias
-          REQUIRED_VARS=(
-            "APP_NAME"
-            "DOCKERHUB_USERNAME" 
-            "CLUSTER_NAME"
-            "REGION_AWS_DEPLOY"
-            "DOMAIN_NAME"
-          )
-          
-          # Lista de secrets obrigatórios
-          REQUIRED_SECRETS=(
-            "DOCKERHUB_TOKEN"
-            "AWS_ACCESS_KEY_ID"
-            "AWS_SECRET_ACCESS_KEY"
-            "AWS_ACCESS_KEY"
-            "AWS_SECRET_KEY"
-            "JWT_TOKEN_PIX_APPLICATION_PAYMENT"
-            "JWT_SECRET"
-            "CLOUDFLARE_EDIT_ZONE_DNS_KEY"
-          )
-          
-          echo "📋 Verificando variáveis..."
-          MISSING_VARS=()
-          for var in "${REQUIRED_VARS[@]}"; do
-            case $var in
-              "APP_NAME")
-                if [ -z "${{ vars.APP_NAME }}" ]; then
-                  MISSING_VARS+=("$var")
-                else
-                  echo "✅ $var: ${{ vars.APP_NAME }}"
-                fi
-                ;;
-              "DOCKERHUB_USERNAME")
-                if [ -z "${{ vars.DOCKERHUB_USERNAME }}" ]; then
-                  MISSING_VARS+=("$var")
-                else
-                  echo "✅ $var: ${{ vars.DOCKERHUB_USERNAME }}"
-                fi
-                ;;
-              "CLUSTER_NAME")
-                if [ -z "${{ vars.CLUSTER_NAME }}" ]; then
-                  MISSING_VARS+=("$var")
-                else
-                  echo "✅ $var: ${{ vars.CLUSTER_NAME }}"
-                fi
-                ;;
-              "REGION_AWS_DEPLOY")
-                if [ -z "${{ vars.REGION_AWS_DEPLOY }}" ]; then
-                  MISSING_VARS+=("$var")
-                else
-                  echo "✅ $var: ${{ vars.REGION_AWS_DEPLOY }}"
-                fi
-                ;;
-              "DOMAIN_NAME")
-                if [ -z "${{ vars.DOMAIN_NAME }}" ]; then
-                  MISSING_VARS+=("$var")
-                else
-                  echo "✅ $var: ${{ vars.DOMAIN_NAME }}"
-                fi
-                ;;
-            esac
-          done
-          
-          echo "🔐 Verificando secrets..."
-          MISSING_SECRETS=()
-          for secret in "${REQUIRED_SECRETS[@]}"; do
-            case $secret in
-              "DOCKERHUB_TOKEN")
-                if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-                  MISSING_SECRETS+=("$secret")
-                else
-                  echo "✅ $secret: [REDACTED]"
-                fi
-                ;;
-              "AWS_ACCESS_KEY_ID")
-                if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
-                  MISSING_SECRETS+=("$secret")
-                else
-                  echo "✅ $secret: [REDACTED]"
-                fi
-                ;;
-              "AWS_SECRET_ACCESS_KEY")
-                if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
-                  MISSING_SECRETS+=("$secret")
-                else
-                  echo "✅ $secret: [REDACTED]"
-                fi
-                ;;
-              "JWT_TOKEN_PIX_APPLICATION_PAYMENT")
-                if [ -z "${{ secrets.JWT_TOKEN_PIX_APPLICATION_PAYMENT }}" ]; then
-                  MISSING_SECRETS+=("$secret")
-                else
-                  echo "✅ $secret: [REDACTED]"
-                fi
-                ;;
-              "JWT_SECRET")
-                if [ -z "${{ secrets.JWT_SECRET }}" ]; then
-                  MISSING_SECRETS+=("$secret")
-                else
-                  echo "✅ $secret: [REDACTED]"
-                fi
-                ;;
-              "CLOUDFLARE_EDIT_ZONE_DNS_KEY")
-                if [ -z "${{ secrets.CLOUDFLARE_EDIT_ZONE_DNS_KEY }}" ]; then
-                  MISSING_SECRETS+=("$secret")
-                else
-                  echo "✅ $secret: [REDACTED]"
-                fi
-                ;;
-            esac
-          done
-          
-          # Verificar se há variáveis ou secrets faltando
-          if [ ${#MISSING_VARS[@]} -ne 0 ] || [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
-            echo ""
-            echo "❌ ERRO: Variáveis ou secrets obrigatórios não foram encontrados!"
-          
-            if [ ${#MISSING_VARS[@]} -ne 0 ]; then
-              echo ""
-              echo "📋 Variáveis faltando:"
-              for var in "${MISSING_VARS[@]}"; do
-                echo "  - $var"
-              done
-              echo ""
-              echo "Para adicionar variáveis:"
-              echo "  1. Vá para Settings > Secrets and variables > Actions"
-              echo "  2. Na aba 'Variables', clique em 'New repository variable'"
-              echo "  3. Adicione cada variável listada acima"
-            fi
-          
-            if [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
-              echo ""
-              echo "🔐 Secrets faltando:"
-              for secret in "${MISSING_SECRETS[@]}"; do
-                echo "  - $secret"
-              done
-            fi
-          
-            exit 1
-          else
-            echo ""
-            echo "✅ Todas as variáveis e secrets necessários estão configurados!"
-            echo ""
-          fi
       - name: Lint Dockerfile
         run: |
           echo "🔍 Verificando qualidade do Dockerfile..."
@@ -214,57 +68,234 @@ jobs:
            echo "🔍 Executando lint no Dockerfile..."
            hadolint Dockerfile 
 
-
-
-
-  build:
+  build_and_test:
+    name: Build & Test
+#    needs: validation-and-lint
+    if: ${{ inputs.run_build_and_test }}
     runs-on: ubuntu-latest
-    needs: validation-and-lint
-    if: inputs.run_build
+    outputs:
+      build_ok: ${{ steps.build_and_test_step.outcome }}
+      app_version: ${{ steps.extract_version.outputs.version }}
+      image_tag: ${{ steps.extract_version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+          cache: maven
 
-      - name: Build Maven project
-        run: mvn clean package -DskipTests
-
-  unit-test:
-    runs-on: ubuntu-latest
-    needs: build
-    if: inputs.run_unit_test
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - run: mvn test
-
-      - name: Gerar relatório Jacoco
-        run: mvn jacoco:report
-
-      - name: Generate Jacoco Badge
-        id: jacoco
-        uses: cicirello/jacoco-badge-generator@v2.0.1
-      - name: Log coverage percentage
+      - name: Extract Version from pom.xml
+        id: extract_version
         run: |
-          echo "Coverage percentage: ${{ steps.jacoco.outputs.coverage }}"
-          echo "branch coverage: ${{ steps.jacoco.outputs.branches }}"
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          
+          echo "📦 Versão do pom.xml: $VERSION"
+          echo "🏷️  Tag da imagem: $VERSION"
 
-      - name: Upload Jacoco coverage report
+      - name: Build with Maven
+        run: | 
+          mvn -B clean verify
+          echo "Verificando JaCoCo: target/site/jacoco/jacoco.xml"
+          if [ -f "target/site/jacoco/jacoco.xml" ]; then
+            echo "::notice::Arquivo encontrado"
+            ls -la target/site/jacoco/jacoco.xml
+            head -n 20 target/site/jacoco/jacoco.xml || true
+          else
+            echo "::error::Arquivo de cobertura JaCoCo não encontrado em target/site/jacoco/jacoco.xml"
+            echo "Conteúdo de target/site/jacoco:"
+            ls -la target/site/jacoco || true
+            exit 1
+          fi
+          
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: jacoco-report
-          path: target/site/jacoco/
+          name: build-artifacts
+          path: |
+            target
+            target/site/jacoco/jacoco.xml
+            *.jar
+
+  gates:
+    name: Quality Gates
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: .
+
+      - name: Verify downloaded artifacts
+        run: |
+          if [ -d "target" ]; then
+            echo "✅ target encontrado"
+            ls -la target
+          elif ls ./*.jar 1> /dev/null 2>&1; then
+            echo "✅ Jar(s) encontrado(s):"
+            ls -la ./*.jar
+          else
+            echo "::error::Artifact 'build-artifacts' not encontrado ou vazio. Esperado `target` ou `*.jar`."
+            ls -la .
+            exit 1
+          fi
+
+      - name: SonarQube Scan
+        if: ${{ inputs.run_gates }}
+        uses: SonarSource/sonarqube-scan-action@v6.0.0
+        with:
+          args: >
+            -Dsonar.coverage.jacoco.xmlReportPaths="**/target/site/jacoco/jacoco.xml"
+            -Dsonar.branch.name=${{ github.ref_name }}
+            ${{ github.ref_name != 'main' && format('-Dsonar.branch.target=main') || '' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Debug .scannerwork
+        run: |
+          echo "Procurando .scannerwork/report-task.txt..."
+          find . -name report-task.txt
+
+      - name: Salvar report-task.txt como artifact
+        if: ${{ inputs.run_gates && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-report-task
+          path: .scannerwork/report-task.txt
+
+      - name: Baixar report-task.txt
+        if: ${{ inputs.run_gates && github.ref == 'refs/heads/main' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: sonar-report-task
+          path: .scannerwork
+
+      - name: Wait for SonarQube Quality Gate
+        if: ${{ inputs.run_gates && github.ref == 'refs/heads/main' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          echo "Conteúdo de .scannerwork/report-task.txt (se existir):"
+          if [ -f ".scannerwork/report-task.txt" ]; then
+            cat .scannerwork/report-task.txt
+          else
+            echo "::warning::Arquivo .scannerwork/report-task.txt não encontrado no diretório atual"
+            ls -la .scannerwork || true
+          fi
+          set -euo pipefail
+
+          REPORT_FILE=".scannerwork/report-task.txt"
+          if [ ! -f "$REPORT_FILE" ]; then
+            echo "::error::Arquivo de report do scanner não encontrado: $REPORT_FILE"
+            ls -la .
+            exit 1
+          fi
+
+          CE_TASK_ID=$(grep '^ceTaskId=' "$REPORT_FILE" | cut -d'=' -f2)
+          SERVER_URL=$(grep '^serverUrl=' "$REPORT_FILE" | cut -d'=' -f2)
+
+          if [ -z "$CE_TASK_ID" ] || [ -z "$SERVER_URL" ]; then
+            echo "::error::Não foi possível obter ceTaskId ou serverUrl do $REPORT_FILE"
+            cat "$REPORT_FILE"
+            exit 1
+          fi
+
+          echo "Aguardando conclusão da task do Sonar (ceTaskId=$CE_TASK_ID)..."
+
+          ANALYSIS_ID=""
+          MAX_TRIES=30
+          TRY=0
+          until [ "$TRY" -ge "$MAX_TRIES" ] || [ -n "$ANALYSIS_ID" ]; do
+            TRY=$((TRY+1))
+            sleep 10
+            JSON=$(curl -s -u "${SONAR_TOKEN}:" "${SERVER_URL}/api/ce/task?id=${CE_TASK_ID}")
+            STATUS=$(echo "$JSON" | jq -r '.task.status // empty')
+            if [ "$STATUS" = "SUCCESS" ]; then
+              ANALYSIS_ID=$(echo "$JSON" | jq -r '.task.analysisId // empty')
+              break
+            elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CANCELED" ]; then
+              echo "::error::Sonar CE task com status $STATUS"
+              echo "$JSON"
+              exit 1
+            else
+              echo "Tentativa $TRY/$MAX_TRIES - status: ${STATUS:-PENDING} ..."
+            fi
+          done
+
+          if [ -z "$ANALYSIS_ID" ]; then
+            echo "::error::Timeout aguardando conclusão da CE task"
+            exit 1
+          fi
+
+          echo "CE task concluída. analysisId=$ANALYSIS_ID"
+          echo "Consultando Quality Gate..."
+
+          QG_JSON=$(curl -s -u "${SONAR_TOKEN}:" "${SERVER_URL}/api/qualitygates/project_status?analysisId=${ANALYSIS_ID}")
+          QG_STATUS=$(echo "$QG_JSON" | jq -r '.projectStatus.status // empty')
+
+          echo "Quality Gate status: $QG_STATUS"
+          echo "$QG_JSON" | jq .
+
+          if [ "$QG_STATUS" != "OK" ]; then
+            echo "::error::Quality Gate falhou: $QG_STATUS"
+            # opcional: imprimir condições falhadas
+            echo "$QG_JSON" | jq -r '.projectStatus.conditions[] | "- \(.metricKey): \(.status) (\(.actualValue) - expected: \(.operator) \(.errorThreshold // .period))"'
+            exit 1
+          fi
+
+          echo "✅ Quality Gate OK"
+
+  docker-build-and-push:
+    name: Build and Push Docker Image
+    needs:  build_and_test
+    runs-on: ubuntu-latest
+    if: inputs.run_docker_build_and_push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
+          echo "🐳 Construindo imagem Docker com tag: $IMAGE_TAG"
+          docker build -t ${{ inputs.app_name }}:$IMAGE_TAG .
+          docker tag ${{ inputs.app_name }}:$IMAGE_TAG ${{ inputs.app_name }}:latest
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag Docker image for Docker Hub
+        run: |
+          IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
+          echo "🏷️  Criando tags para Docker Hub..."
+          docker tag ${{ inputs.app_name }}:$IMAGE_TAG ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:$IMAGE_TAG
+          docker tag ${{ inputs.app_name }}:$IMAGE_TAG ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:latest
+          echo "✅ Tags criadas: $IMAGE_TAG e latest"
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
+          echo "📤 Enviando imagens para Docker Hub..."
+          docker push ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:$IMAGE_TAG
+          docker push ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:latest
+          echo "✅ Imagens publicadas:"
+          echo "  - ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:$IMAGE_TAG"
+          echo "  - ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:latest"

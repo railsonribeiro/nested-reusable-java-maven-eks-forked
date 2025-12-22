@@ -8,8 +8,9 @@ on:
         required: true
         type: string
       dockerhub_username:
-        required: true
+        required: false
         type: string
+        default: "postechf57"
       java_version:
         description: "Versão do Java (ex: '17' ou '21')"
         required: false
@@ -34,6 +35,28 @@ on:
         required: false
         type: boolean
         default: true
+      run_update_deployment:
+        description: "Atualizar tag no deployment.yaml e fazer commit"
+        required: false
+        type: boolean
+        default: true
+      deployment_path:
+        description: "Caminho do deployment.yaml (ex: k8s/prd/deployment.yaml)"
+        required: false
+        type: string
+        default: "k8s/prd/deployment.yaml"
+      run_cd:
+        description: "Disparar workflow de CD após update do deployment"
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      new_image_pushed:
+        description: "Se nova imagem foi publicada"
+        value: ${{ jobs.docker-build-and-push.outputs.new_image_pushed }}
+      image_tag:
+        description: "Tag da imagem publicada"
+        value: ${{ jobs.docker-build-and-push.outputs.image_tag }}
 
 jobs:
   validation-and-lint:
@@ -265,11 +288,34 @@ jobs:
     needs:  build_and_test
     runs-on: ubuntu-latest
     if: inputs.run_docker_build_and_push
+    outputs:
+      new_image_pushed: ${{ steps.check_tag.outputs.tag_exists == 'false' }}
+      image_tag: ${{ needs.build_and_test.outputs.image_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check if image tag already exists on Docker Hub
+        id: check_tag
+        run: |
+          IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
+          IMAGE_NAME="${{ inputs.dockerhub_username }}/${{ inputs.app_name }}"
+          
+          echo "🔍 Verificando se a tag '$IMAGE_TAG' já existe no Docker Hub..."
+          
+          # Verificar se a tag existe usando a API do Docker Hub
+          RESPONSE=$(curl -s "https://hub.docker.com/v2/repositories/${IMAGE_NAME}/tags/${IMAGE_TAG}")
+          
+          if echo "$RESPONSE" | grep -q '"name"'; then
+            echo "⏭️  Tag '$IMAGE_TAG' já existe no Docker Hub. Pulando build e push."
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Tag '$IMAGE_TAG' não existe. Continuando com build e push."
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build Docker image
+        if: steps.check_tag.outputs.tag_exists == 'false'
         run: |
           IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
           echo "🐳 Construindo imagem Docker com tag: $IMAGE_TAG"
@@ -277,12 +323,14 @@ jobs:
           docker tag ${{ inputs.app_name }}:$IMAGE_TAG ${{ inputs.app_name }}:latest
 
       - name: Login to Docker Hub
+        if: steps.check_tag.outputs.tag_exists == 'false'
         uses: docker/login-action@v3
         with:
           username: ${{ inputs.dockerhub_username }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Tag Docker image for Docker Hub
+        if: steps.check_tag.outputs.tag_exists == 'false'
         run: |
           IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
           echo "🏷️  Criando tags para Docker Hub..."
@@ -291,6 +339,7 @@ jobs:
           echo "✅ Tags criadas: $IMAGE_TAG e latest"
 
       - name: Push Docker image to Docker Hub
+        if: steps.check_tag.outputs.tag_exists == 'false'
         run: |
           IMAGE_TAG="${{ needs.build_and_test.outputs.image_tag }}"
           echo "📤 Enviando imagens para Docker Hub..."
@@ -299,3 +348,54 @@ jobs:
           echo "✅ Imagens publicadas:"
           echo "  - ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:$IMAGE_TAG"
           echo "  - ${{ inputs.dockerhub_username }}/${{ inputs.app_name }}:latest"
+
+  update-deployment-tag:
+    name: Update Deployment Tag
+    needs: docker-build-and-push
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' && inputs.run_update_deployment && needs.docker-build-and-push.outputs.new_image_pushed == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update deployment image tag
+        run: |
+          IMAGE_TAG="${{ needs.docker-build-and-push.outputs.image_tag }}"
+          IMAGE_NAME="${{ inputs.dockerhub_username }}/${{ inputs.app_name }}"
+          DEPLOYMENT_PATH="${{ inputs.deployment_path }}"
+          
+          echo "🏷️ Atualizando tag da imagem para: $IMAGE_TAG"
+          echo "📁 Arquivo: $DEPLOYMENT_PATH"
+          
+          if [ ! -f "$DEPLOYMENT_PATH" ]; then
+            echo "❌ ERRO: Arquivo $DEPLOYMENT_PATH não encontrado"
+            exit 1
+          fi
+          
+          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${IMAGE_TAG}|" "$DEPLOYMENT_PATH"
+          echo "✅ Tag atualizada:"
+          grep "image:" "$DEPLOYMENT_PATH"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ inputs.deployment_path }}
+          git diff --staged --quiet || git commit -m "release: ${{ needs.docker-build-and-push.outputs.image_tag }} [skip ci]"
+          git push
+
+  call-cd:
+    name: Trigger CD Workflow
+    needs: [docker-build-and-push, update-deployment-tag]
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' && inputs.run_cd && needs.docker-build-and-push.outputs.new_image_pushed == 'true' }}
+    steps:
+      - name: Trigger CD workflow
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d "{\"event_type\": \"deploy\"}"

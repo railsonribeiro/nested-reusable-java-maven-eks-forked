@@ -3,122 +3,203 @@ name: Deploy Workflow
 on:
   workflow_call:
     inputs:
+      argo_app_name:
+        required: true
+        type: string
+        description: 'Nome da aplicação (ex: orders-api)'
       cluster_name:
         required: true
         type: string
+        description: 'Nome do cluster EKS'
       namespace:
         required: true
         type: string
+        description: 'Namespace da aplicação'
+      git_repo_url:
+        required: true
+        type: string
+        description: 'URL do repositório Git com os manifestos'
+      git_branch:
+        required: false
+        type: string
+        default: main
+        description: 'Branch do repositório a ser monitorada'
+      manifests_path:
+        required: false
+        type: string
+        default: k8s/prd
+        description: 'Caminho dos manifestos no repositório'
+      environment:
+        required: false
+        type: string
+        default: production
+        description: 'Ambiente (production, staging, development)'
       region_aws_deploy:
         required: false
         type: string
         default: us-east-1
-      run_deploy:
+      argocd_namespace:
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: argocd
+        description: 'Namespace onde o ArgoCD está instalado'
 
     secrets:
       AWS_ACCESS_KEY_ID:
         required: true
       AWS_SECRET_ACCESS_KEY:
         required: true
-      CONFIG_MAP_SECRET_KEYS:
+      GIT_TOKEN:
         required: false
-        description: 'JSON string with custom secret key mappings. Example: {"DB_PASSWORD":"DATABASE_PASSWORD","API_KEY":"EXTERNAL_API_KEY"}'
+        description: 'Token para acessar repositórios privados do GitHub (opcional para repos públicos)'
 
 jobs:
-  deploy:
-    name: Deploy to Cluster
+  deploy-argocd:
+    name: Deploy Application via ArgoCD
     runs-on: ubuntu-latest
-    if: inputs.run_deploy
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ inputs.region_aws_deploy }}
 
       - name: Update kube config
         run: |
-          echo "🔍 Verificando cluster EKS: ${{inputs.cluster_name}}"
+          echo "🔍 Verificando cluster EKS: ${{ inputs.cluster_name }}"
           
-          # Verificar se o cluster existe
-          if ! aws eks describe-cluster --name ${{inputs.cluster_name}} --region ${{inputs.region_aws_deploy}} >/dev/null 2>&1; then
-            echo "❌ ERRO: Cluster EKS '${{inputs.cluster_name}}' não encontrado na região ${{inputs.region_aws_deploy}}"
+          if ! aws eks describe-cluster --name ${{ inputs.cluster_name }} --region ${{ inputs.region_aws_deploy }} >/dev/null 2>&1; then
+            echo "❌ ERRO: Cluster EKS '${{ inputs.cluster_name }}' não encontrado na região ${{ inputs.region_aws_deploy }}"
             exit 1
           fi
           
           echo "✅ Cluster encontrado, atualizando kubeconfig..."
-          aws eks update-kubeconfig --name ${{inputs.cluster_name}} --region ${{inputs.region_aws_deploy}}
+          aws eks update-kubeconfig --name ${{ inputs.cluster_name }} --region ${{ inputs.region_aws_deploy }}
           
-          # Testar conectividade
           echo "🔍 Testando conectividade com o cluster..."
           if ! kubectl get nodes >/dev/null 2>&1; then
             echo "❌ ERRO: Não foi possível conectar ao cluster"
-            echo "Verifique as permissões IAM e a configuração do cluster"
             exit 1
           fi
           
           echo "✅ Conectado ao cluster com sucesso!"
           kubectl get nodes
 
-      - name: Create Namespace
+      - name: Install ArgoCD CLI
         run: |
-          kubectl apply -f k8s/prd/namespace.yaml
+          echo "📦 Instalando ArgoCD CLI..."
+          curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+          argocd version --client
 
-      - name: Deploy ConfigMap and Secret base
+      - name: Get ArgoCD Server URL
+        id: argocd_url
         run: |
-          # Apply base ConfigMap and Secret first in the correct namespace
-          kubectl apply -f k8s/prd/configmap.yaml -n ${{ inputs.namespace }}
+            echo "🔍 Obtendo URL do ArgoCD do cluster..."
+            ARGOCD_URL=$(kubectl get svc argocd-server -n ${{ inputs.argocd_namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            if [ -z "$ARGOCD_URL" ]; then
+              echo "❌ ERRO: Não foi possível obter a URL do ArgoCD"
+              exit 1
+            fi
+            echo "url=$ARGOCD_URL" >> $GITHUB_OUTPUT
+            echo "✅ URL do ArgoCD: $ARGOCD_URL"
+      
+      - name: Get ArgoCD Admin Password
+        id: argocd_password
+        run: |
+          echo "🔐 Recuperando senha do admin do ArgoCD do AWS Secrets Manager..."
+          SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id argocd-admin-password --query SecretString --output text)
+          
+          # Extrair senha do JSON
+          ARGOCD_PASSWORD=$(echo "$SECRET_VALUE" | jq -r '.password' | tr -d '\n' | xargs)
+          
+          if [ -z "$ARGOCD_PASSWORD" ]; then
+            echo "❌ ERRO: Não foi possível recuperar a senha do ArgoCD"
+            echo "Secret content: $SECRET_VALUE"
+            exit 1
+          fi
+          
+          echo "password=$ARGOCD_PASSWORD" >> $GITHUB_OUTPUT
+          echo "✅ Senha recuperada com sucesso! (length: ${#ARGOCD_PASSWORD} chars)"
+      
+      - name: Login to ArgoCD
+        env:
+          ARGOCD_PASSWORD: ${{ steps.argocd_password.outputs.password }}
+        run: |
+          echo "🔐 Fazendo login no ArgoCD..."
+          echo "🔍 URL: ${{ steps.argocd_url.outputs.url }}"
+          echo "👤 Username: admin"
+          echo "🔑 Password length: ${#ARGOCD_PASSWORD} chars"
+          
+          argocd login ${{ steps.argocd_url.outputs.url }} \
+            --username admin \
+            --password "$ARGOCD_PASSWORD" \
+            --grpc-web \
+            --insecure \
+            --plaintext
+          
+          echo "✅ Login realizado com sucesso!"
 
-      - name: Update ConfigMap and Secrets
+      - name: Configure Git Repository Access
         run: |
-          # Only update if CONFIG_MAP_SECRET_KEYS is provided
-          if [ -n "${{ secrets.CONFIG_MAP_SECRET_KEYS }}" ]; then
-            echo "🔄 Atualizando secrets no Kubernetes..."
-            
-            SECRET_NAME="api-secret"
-            NAMESPACE="${{ inputs.namespace }}"
-            
-            # Process custom secrets
-            echo "📝 Processando secrets customizados..."
-            CUSTOM_SECRETS='${{ secrets.CONFIG_MAP_SECRET_KEYS }}'
-            
-            # Parse JSON and add each custom secret
-            # Note: You would pass the actual secret values through the secrets context
-            echo "ℹ️  Custom secrets configurados (valores devem ser passados via secrets do workflow)"
-            
-            # Apply the patch with custom secrets in the correct namespace
-            kubectl patch secret "${SECRET_NAME}" -n "${NAMESPACE}" --patch "
-            data:
-              ${CUSTOM_SECRETS}
-            "
-            
-            echo "✅ Secret '${SECRET_NAME}' atualizado com dados sensíveis no namespace '${NAMESPACE}'"
+          echo "🔑 Configurando acesso ao repositório..."
+          
+          if [ -n "${{ secrets.GIT_TOKEN }}" ]; then
+            echo "🔐 Token encontrado - configurando acesso autenticado (repo privado)..."
+            argocd repo add ${{ inputs.git_repo_url }} \
+              --username git \
+              --password ${{ secrets.GIT_TOKEN }} \
+              --insecure-skip-server-verification \
+              --upsert
+            echo "✅ Repositório privado configurado no ArgoCD"
           else
-            echo "⏭️  Nenhum secret customizado fornecido, pulando atualização..."
+            echo "🌐 Sem token - configurando acesso público..."
+            argocd repo add ${{ inputs.git_repo_url }} \
+              --insecure-skip-server-verification \
+              --upsert
+            echo "✅ Repositório público configurado no ArgoCD"
           fi
 
-      - name: Deploy to AWS/EKS (Production)
+      - name: Create ArgoCD Application
         run: |
-          echo "🚀 Iniciando deploy dos recursos..."
+          echo "🚀 Criando/Atualizando aplicação no ArgoCD..."
+          
+          # Criar Application usando ArgoCD CLI (sync manual)
+          argocd app create ${{ inputs.argo_app_name }} \
+            --repo ${{ inputs.git_repo_url }} \
+            --path ${{ inputs.manifests_path }} \
+            --dest-server https://kubernetes.default.svc \
+            --dest-namespace ${{ inputs.namespace }} \
+            --revision ${{ inputs.git_branch }} \
+            --sync-option CreateNamespace=true \
+            --grpc-web \
+            --upsert \
+            || echo "⚠️  Aplicação já existe, continuando..."
+          
+          echo "✅ Aplicação criada/atualizada no ArgoCD"
 
-          # Apply deployment first
-          kubectl apply -f k8s/prd/deployment.yaml --force
+      - name: Sync ArgoCD Application
+        run: |
+          echo "🔄 Sincronizando aplicação..."
+          argocd app sync ${{ inputs.argo_app_name }} \
+            --grpc-web \
+            --prune \
+            --timeout 300
+          
+          echo "✅ Sincronização concluída!"
 
-          # Aplicar o Service
-          kubectl apply -f k8s/prd/k8s-service.yaml
-
-          # Aplicar Ingress
-          kubectl apply -f k8s/prd/ingress.yaml
-
-          # Aplicar outros recursos
-          kubectl apply -f k8s/prd/hpa.yaml
-
-          echo "✅ Todos os recursos aplicados com sucesso!"
+      - name: Display Application URL
+        run: |
+          echo "========================================="
+          echo "✅ Deploy concluído com sucesso!"
+          echo "========================================="
+          echo ""
+          echo "🔗 ArgoCD URL: http://${{ steps.argocd_url.outputs.url }}"
+          echo "📁 Repositório: ${{ inputs.git_repo_url }}"
+          echo "🌿 Branch: ${{ inputs.git_branch }}"
+          echo "========================================="
